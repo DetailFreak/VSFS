@@ -11,7 +11,7 @@
 #define FS_DIR 0
 
 #define MSGQ_PATH "/mnt/e/Sem3/NP/Assignment/client-server/"
-#define MAX_SIZE 1000
+#define MAX_SIZE 500
 
 
 typedef struct Chunk {
@@ -36,6 +36,8 @@ typedef struct Node {
 struct mesg_buffer {
 	long mesg_type; 
 	char mesg_text[MAX_SIZE]; 
+	char mesg_filename[MAX_SIZE];
+	char mesg_chuckname[MAX_SIZE];
 	long server_id;
 } message; 
 
