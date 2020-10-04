@@ -140,7 +140,9 @@ Node* find_node(Node* fs, const char* pth) {
     while(*path_nodes){
         i = find_child_idx(temp, *path_nodes);
         if (i == -1) {
-            perror("%s is not a file or directory.\n");
+            // char message[80];
+            // sprintf(message, "Error find_node: \"%s\" is not a valid file or directory.\n", *path_nodes);
+            // perror(message);
             return NULL;
         }
         temp = temp->child[i];
@@ -211,19 +213,46 @@ void printfs(Node* fs) {
     }
 }
 
+Node* create_path(Node* fs, const char* path) {
+    Node* temp = fs;
+    char path_cpy[256];
+    strcpy(path_cpy, path);
+    char ** path_comp = parse_input(path_cpy, "/");
+    while(*path_comp) {
+        Node* child;
+        if ((child = find_child(temp, *path_comp)) && child->type == FS_DIR) {
+            ;
+        } else {
+            insert_child(temp, FS_DIR, *path_comp);
+            child = temp->child[temp->num_children-1];
+        }
+        temp = child;
+        ++path_comp;
+    }
+    return temp;
+}
+
+int add_file(Node* fs, const char* path, const char* file_name, int overwrite) {
+    if (overwrite == 0) 
+        return insert_node(fs, path, FS_FILE, file_name);
+    
+    Node* dir = create_path(fs, path);
+    return insert_child(dir, FS_FILE, file_name); 
+}
+
+int add_chunk(const char* fs, const char* path, int chunk_size, int chunk_number) {
+    Node* file = find_node(path)
+}
+
 int main() {
     Node* fs = mknode(FS_DIR, "root");
-    insert_child(fs, FS_DIR, "music");
-    insert_child(fs, FS_DIR, "movies");
-    insert_child(fs, FS_DIR, "games");
-    insert_child(fs, FS_FILE, "index.html");
-    // delete_child(fs, "index.html");
-    insert_node(fs, "games", FS_DIR, "dmc");
-    insert_node(fs, "/games/dmc", FS_DIR,"bin");
+    create_path(fs, "movies/batman/batman_begins");
+    find_node(fs, "superman");
     printfs(fs);
-    char path[128];
-    strcpy(path,"/hello/file.txt/");
-    char** parts = parse_input(path, "/");
-    printf("%s\n", parts[1]);
-    exit(EXIT_SUCCESS);
+    // char path[128];
+    // strcpy(path,"/hello/file.txt/");
+    // char** parts = parse_input(path, "/");
+    // printf("%s\n", parts[1]);
+    // exit(EXIT_SUCCESS);
+    return 0;
 }
