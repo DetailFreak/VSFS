@@ -1,26 +1,21 @@
-#include <unistd.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/wait.h>
+#include "vsfs_config.h"
 
-#define MAX_NAME_LEN 64
-#define ADDRESS_LEN 128
+#define MAX_NAME_LEN 256
 #define MAX_CHILDREN 512
 #define FS_FILE 1
 #define FS_DIR 0
 
-#define MSGQ_PATH "/mnt/e/Sem3/NP/Assignment/client-server/"
+#define INIT_BUFF_LEN = 100;
 #define MAX_SIZE 500
-
 
 typedef struct Chunk {
     char name[MAX_NAME_LEN];
-    char node[3][ADDRESS_LEN];
+    int addr[NUM_REPLICAS];
 } Chunk;
 
 typedef struct FileMeta {
     int num_chunks;
+    size_t buff_size;
     Chunk *chunks;
 } FileMeta;
 
@@ -32,81 +27,25 @@ typedef struct Node {
     struct Node *child[MAX_CHILDREN];
 } Node;
 
-
-struct mesg_buffer {
-	long mesg_type; 
-	char mesg_text[MAX_SIZE]; 
-	char mesg_filename[MAX_SIZE];
-	char mesg_chuckname[MAX_SIZE];
-	long server_id;
-} message; 
-
-
-void init_mesg_queue(){
-	key_t keycm; 
-	key_t keycd; 
-	key_t keymd; 
-	int msgid; 
-
-	if((keycm = ftok(MSGQ_PATH, 'A')) == -1){
-		perror("ftok err");
-		exit(1);
-	} 
-	if((msgid = msgget(key, 0666 | IPC_CREAT)) == -1){
-		perror("msgget");
-		exit(1);
-	}
-	if((keycd = ftok(MSGQ_PATH, 'B')) == -1){
-		perror("ftok err");
-		exit(1);
-	} 
-	if((msgid = msgget(key, 0666 | IPC_CREAT)) == -1){
-		perror("msgget");
-		exit(1);
-	}
-	if((keymd = ftok(MSGQ_PATH, 'C')) == -1){
-		perror("ftok err");
-		exit(1);
-	} 
-	if((msgid = msgget(key, 0666 | IPC_CREAT)) == -1){
-		perror("msgget");
-		exit(1);
-	}
+void init_chunk(Chunk* chunk, const char* chunk_name, int * node_addresses) {
+    strcpy(chunk->name, chunk_name);
+    for(int i=0; i<NUM_REPLICAS; ++i) {
+        chunk->addr[i] = node_addresses[i];
+    }
 }
 
-char **parse_input(char *input, char *sep){
-    /* 
-    
-    returns the list of commands (seperated by pipe in the input)
-    
-    input: user input from getline
-    
-    output: set of commands
-
-    */
-    char *tok;
-    char **command = malloc(64 * sizeof(char *));
-    int i = 0;
-
-    tok = strtok(input, sep);
-
-    while(tok != NULL){
-        char *newline = strchr(tok, '\n');
-        if(newline)
-            *newline=0;
-        command[i] = tok;
-        // printf("%s\t",  command[i]);
-        i++;
-        tok = strtok(NULL, sep);
-    }
-    command[i] = NULL;
-    return command;
+FileMeta* mkmeta() {
+    FileMeta* meta = malloc(sizeof(FileMeta));
+    meta->chunks = NULL;
+    meta->num_chunks = 0;
+    meta->buff_size = 0;
+    return meta;
 }
 
 Node* mknode(int type, const char* name) {
     Node* node = malloc(sizeof(Node));
     node->type = type;
-    node->meta = (type == FS_FILE) ? (malloc(sizeof(FileMeta))) : (NULL) ;
+    node->meta = (type == FS_FILE) ? (mkmeta()) : (NULL) ;
     strcpy(node->name, name);
     node->num_children = 0;
     for(int i = 0; i<MAX_CHILDREN; ++i)
@@ -186,9 +125,6 @@ Node* find_node(Node* fs, const char* pth) {
     while(*path_nodes){
         i = find_child_idx(temp, *path_nodes);
         if (i == -1) {
-            // char message[80];
-            // sprintf(message, "Error find_node: \"%s\" is not a valid file or directory.\n", *path_nodes);
-            // perror(message);
             return NULL;
         }
         temp = temp->child[i];
@@ -251,11 +187,11 @@ char ** divide_path(const char* path) {
 
 void printfs(Node* fs) {
     if (fs->type == FS_DIR && fs->num_children){
-    printf("%s: ",fs->name);
-    print_children(fs);
-    for(int i=0; i<fs->num_children; ++i){
-        printfs(fs->child[i]);
-    }
+        printf("%s:",fs->name);
+        print_children(fs);
+        for(int i=0; i<fs->num_children; ++i){
+            printfs(fs->child[i]);
+        }
     }
 }
 
@@ -286,24 +222,92 @@ int add_file(Node* fs, const char* path, const char* file_name, int overwrite) {
     return insert_child(dir, FS_FILE, file_name); 
 }
 
-int add_chunk(const char* fs, const char* path, int chunk_size, int chunk_number) {
-    Node* file = find_node(path)
+int rand_in(int min_val, int max_val) {
+    return (rand() % (max_val - min_val + 1) + min_val);
+}
+
+int* num_rand_in(int num_vals, int lower_limit, int upper_limit) {
+    int *vals = malloc(num_vals  * sizeof(int));
+    int i, j, r, repeat;
+    for(i = 0; i<num_vals; ++i) {
+        r = rand_in(lower_limit, upper_limit);
+        repeat = 0;
+        for(j = 0; j < i; ++j) {
+            if (vals[j] == r) {
+                repeat = 1;
+                break;
+            } 
+        }
+        if (!repeat) {
+            vals[i] = r;
+        } else {
+            --i;
+        }
+    }
+    return vals;
+}
+
+char* get_chunk_name(const char* path, int chunk_number) {
+    char* chunk_name = malloc(512);
+    sprintf(chunk_name, "%s%d", path, chunk_number);
+    return chunk_name;
+}
+
+int* get_replica_addresses() {
+    srand(time(0));
+    int *rand_idxs = num_rand_in(NUM_REPLICAS, 0, count_d-1); 
+    int *addresses = malloc(NUM_REPLICAS * sizeof(int));
+    for(int i = 0; i < NUM_REPLICAS; ++i){
+        addresses[i] = addr_d[rand_idxs[i]];
+    }
+    return addresses;
+}
+
+int add_chunk(Node* fs, const char* path) {
+    Node* file = find_node(fs, path);
+    FileMeta* meta = file->meta;
+    
+    if (meta->num_chunks >= (0.7*meta->buff_size)){
+        meta->buff_size *= 2;
+        meta->chunks = realloc(meta->chunks, meta->buff_size);
+    }
+    
+    char* chunk_name = get_chunk_name(path, meta->num_chunks);
+    int* addresses = get_replica_addresses();
+    init_chunk(&(meta->chunks[meta->num_chunks++]), chunk_name, addresses);
+}
+
+int async_recv(Message* msg, int type) {
+    if (msgrcv(msgid_m, msg, sizeof(Message), type, IPC_NOWAIT) != -1) 
+	    return 1; 
+    else return 0;
 }
 
 int main() {
-    Node* fs = mknode(FS_DIR, "root");
-    create_path(fs, "movies/batman/batman_begins");
-    find_node(fs, "superman");
-    printfs(fs);
+
+    init_mesg_queue();
+    
+    // create_path(fs, "movies/batman/batman_begins");
+    // find_node(fs, "superman");
+    // printfs(fs);
     // char path[128];
     // strcpy(path,"/hello/file.txt/");
     // char** parts = parse_input(path, "/");
     // printf("%s\n", parts[1]);
     // exit(EXIT_SUCCESS);
+    
 
-    // msgrcv(msgid, &message, sizeof(message), 50, 0); 
-	// printf(" %s \n", message.mesg_text); 
-	// msgctl(msgid, IPC_RMID, NULL); 
+    Node* fs = mknode(FS_DIR, "root");
+    Message message;
+    
+    while(1){
+        if (async_recv(&message, ADD_FILE)) {
+            int status = add_file(fs,message.filepath, message.filename, 1);
+            // Message msg; msg.mtype = OK; msgsnd(msgid_c, &msg, sizeof(msg), 0);
+        }
+        if (async_recv(&message, ADD_CHUNK)) add_chunk(fs, message.filepath);
+    } 
+	msgctl(msgid_m, IPC_RMID, NULL); 
 
     return 0;
 }
