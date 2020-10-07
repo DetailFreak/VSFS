@@ -1,131 +1,105 @@
-#include <stdio.h> 
-#include <stdlib.h>
-#include <sys/ipc.h> 
-#include <sys/msg.h> 
+#include "vsfs_config.h"
 
-#define MSGQ_PATH "/mnt/e/Sem3/NP/Assignment/client-server/"
-#define MAX_SIZE 500
+void add_chunk(char *server, Message *m){
+	printf("Data %s \n", m->text);
 
+	FILE *fp;
+	char filename[256];
+	snprintf(filename, 256, "%s/%s.txt", server, m->chunkname);
 
-struct mesg_buffer {
-	long mesg_type; 
-	char mesg_text[MAX_SIZE];
-	char mesg_filename[MAX_SIZE];
-	char mesg_chuckname[MAX_SIZE];
-	long server_id;
-} message; 
+	fp = fopen(filename,"w");
+	fwrite(m->text, m->chunk_size, 1, fp);
+	fclose(fp);
+}
 
 
-void init_mesg_queue(){
-	key_t keycm; 
-	key_t keycd; 
-	key_t keymd; 
-	int msgid; 
+void remove_chunk(char *server, Message *m){
+	char filename[256];
+	int chunk_num = 1;
+	m->mtype = 3;
 
-	if((keycm = ftok(MSGQ_PATH, 'A')) == -1){
-		perror("ftok err");
-		exit(1);
+	// puts("inside remove chunk");
+
+	puts(filename);
+	snprintf(filename, 256, "%s/%s.txt", server, m->chunkname);
+
+	while( access(filename, F_OK ) != -1 ) {
+    	// file exists
+		if(remove(filename) == 0){
+			printf("--------- chunk %s removed \n", m->chunkname);	
+		}else{
+			printf("--------- Unable to delete chunk %s \n", m->chunkname);	
+		}
+		sprintf(filename, "%s/%s.txt", server, m->chunkname); 
 	} 
-	if((msgid = msgget(key, 0666 | IPC_CREAT)) == -1){
-		perror("msgget");
-		exit(1);
+
+}
+
+
+void send_chunk(long receiver_id, Message *m,  char *chunkname, char *server_name){
+	FILE *file = NULL;
+    size_t bytesRead = 0;
+	char srcfile[128];
+
+	m->operation = ADD_CHUNK;
+	m->mtype = receiver_id;
+	strcpy(m->chunkname, chunkname);
+	sprintf(srcfile,"%s/%s.txt", server_name, m->chunkname);
+
+	file = fopen(srcfile, "r");
+	if(file != NULL){
+		while ((bytesRead = fread(m->text, 1, 128, file)) > 0){
+			printf("----  %s ----- \n", m->text);
+			if(sync_send(msgid_d, m)){
+				perror("add chunk send error");
+			}
+		}
+		fclose(file);
 	}
-	if((keycd = ftok(MSGQ_PATH, 'B')) == -1){
-		perror("ftok err");
-		exit(1);
-	} 
-	if((msgid = msgget(key, 0666 | IPC_CREAT)) == -1){
-		perror("msgget");
-		exit(1);
-	}
-	if((keymd = ftok(MSGQ_PATH, 'C')) == -1){
-		perror("ftok err");
-		exit(1);
-	} 
-	if((msgid = msgget(key, 0666 | IPC_CREAT)) == -1){
-		perror("msgget");
-		exit(1);
-	}
 }
 
-void add_chunks(){
-	msgrcv(msgid, &message, sizeof(message), 60, 0);
-	if (overwrite == 0) 
-        return insert_node(fs, path, FS_FILE, file_name);
-    
-    Node* dir = create_path(fs, path);
-    return insert_child(dir, FS_FILE, file_name); 
+void advertise_self(int msgid, int serverid, char* servername, Message* msg) {
+	msg->mtype = ACK;
+	msg->operation = OK;
+	msg->server_id = serverid;
+	strcpy(msg->text, servername);
+	sync_send(msgid_m, msg);
 }
 
 
-void move(char *src, char *dest){
-	msgrcv(msgid, &message, sizeof(message), 70, 0);
-	char **parts = malloc(2*sizeof(char*));
-    for(int i = strlen(path)-1; i >= 0; --i) {
-        if (path[i] == '/' && i != strlen(path)-1) {
-            parts[0] = malloc(i+1);
-            for(int j = 0; j < i; ++j) {
-                parts[0][j] = path[j];
-            } parts[0][i] = '\0';
-
-            parts[1] = malloc(strlen(path) - i);
-            for(int j = 0; j < strlen(path) - i - 1 && path[i+j+1] != '/'; ++j) {
-                parts[1][j] = path[i+j+1];
-            } parts[1][strlen(path) - i] = '\0';
-            
-            return parts;
-        }
-    }
-    return NULL;
-}
-
-
-void copy(char *src, char *dest){
-	msgrcv(msgid, &message, sizeof(message), 70, 0);
-	char **parts = malloc(2*sizeof(char*));
-    for(int i = strlen(path)-1; i >= 0; --i) {
-        if (path[i] == '/' && i != strlen(path)-1) {
-            parts[0] = malloc(i+1);
-            for(int j = 0; j < i; ++j) {
-                parts[0][j] = path[j];
-            } parts[0][i] = '\0';
-
-            parts[1] = malloc(strlen(path) - i);
-            for(int j = 0; j < strlen(path) - i - 1 && path[i+j+1] != '/'; ++j) {
-                parts[1][j] = path[i+j+1];
-            } parts[1][strlen(path) - i] = '\0';
-            
-            return parts;
-        }
-    }
-    return NULL;
-}
-
-
-int delete_child(Node *fs, const char* name) {
-    int i, j;
-    if ((i = find_child_idx(fs, name)) == -1){
-        perror("Error deleting, Node not found!.\n");
-        return -1;
-    }
-
-    if (fs->child[i]->type == FS_FILE){
-        free(fs->child[i]->meta);
-    } free(fs->child[i]);
-
-    for(j = i+1; j<fs->num_children; ++j){
-        fs->child[j-1] = fs->child[j];
-    } fs->child[--(fs->num_children)] = NULL;
-
-    return 0;
-}
-
-
-int main() 
+int main(int argc, char** argv)
 {
 	init_mesg_queue();
-	msgrcv(msgid, &message, sizeof(message), 50, 0); 
-	printf(" %s \n", message.mesg_text); 
-	msgctl(msgid, IPC_RMID, NULL); 
+
+	Message req, res;
+	char servername[256];
+	long server_id = atol(argv[1]);
+	snprintf(servername, 256, "server_%ld", server_id);
+
+	advertise_self(msgid_m, server_id, servername, &res);
+    // msgctl(msgid_cd, IPC_RMID, NULL);
+	// remove_chunk("server_3");
+	if(server_id == 1)
+		// send_chunk(2, "openflow_Group_select", 4, server_id, "server_1");
+	do
+	{
+		if(async_recv(msgid_d, &req, server_id)) {
+			if(req.operation == ADD_CHUNK){
+				add_chunk(servername, &req);
+			}
+			if(req.operation == RM_CHUNK){
+				remove_chunk(servername, &req);
+			}
+			if(req.operation == STOP_DSERVER){
+				res.mtype = ACK;
+				res.operation = DEAD;
+				res.server_id = server_id;
+				strcpy(res.text, servername);
+				sync_send(msgid_m, &res);
+				exit(EXIT_SUCCESS); 
+			}
+		}
+	} while (1);
+
 	return 0; 
 } 

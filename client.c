@@ -1,59 +1,158 @@
 #include "vsfs_config.h"
 
-void add_chunks(int msgid, char* chunkname, int chunksize, int filesize, char* filepath){
-	//msgrcv(msgid, &message, sizeof(message), 50, 0);
-	// int chunks = filesize/chunksize;
-	// for(int i = 0; i<chunks; ++i) {
-	// 	msgsnd(msgid, &message, sizeof(message), 70);
-	// }
-	// printf("sent chunks");
-	// for(int i = 0; i<chunks; ++i) {
-	// 	//msgrcv(msgid, &message, 200);
-	// }
+char* get_input(){
+    char *buf;
+    size_t size = 1024;
+    buf = (char*) malloc(size);
+    printf("VSFS> ");
+    fflush(stdout);
+    if (getline(&buf, &size, stdin) == -1){
+            exit(EXIT_FAILURE);
+    }
+    return buf;
 }
 
-void add_file(){
-	// msgrcv(msgid, &message, sizeof(message), 50, 0);
-	// Node* temp = fs;
-    // char path_cpy[256];
-    // strcpy(path_cpy, path);
-    // char ** path_comp = parse_input(path_cpy, "/");
-    // while(*path_comp) {
-    //     Node* child;
-    //     if ((child = find_child(temp, *path_comp)) && child->type == FS_DIR) {
-    //         ;
-    //     } else {
-    //         insert_child(temp, FS_DIR, *path_comp);
-    //         child = temp->child[temp->num_children-1];
-    //     }
-    //     temp = child;
-    //     ++path_comp;
-    // }
-    // return temp;
+/*
+    Request response functions
+*/
+
+void add_file(char **args, Message* req, Message* res){
+	int argc = count_args(args);
+    if (argc < 2 || argc > 3) {
+        printf("Usage: addfile [optional -f] <path to file> \n");
+        return;
+    }
+    req->mtype = ADD_FILE;
+    
+    if (argc == 2) {
+        int len = strlen(args[1]);
+        if (args[1][len-1] == '\n')
+            args[1][len-1] ='\0';
+
+        if (args[1][0] != '/'){
+            sprintf(req->filepath, "/%s", args[1]);
+        } else {
+            strcpy(req->filepath, args[1]);
+        }
+
+        req->msg_id = msgid_c;
+    } 
+
+    if (argc == 3) {
+
+        if (args[1][0] == '-'){
+            sprintf(req->text, "%c", args[1][1]);
+        } else {
+            req->text[0] = '\0';
+        }
+
+        int len = strlen(args[2]);
+        if (args[2][len-1] == '\n')
+            args[2][len-1] ='\0';
+
+        if (args[2][0] != '/'){
+            sprintf(req->filepath, "/%s", args[2]);
+        } else {
+            strcpy(req->filepath, args[2]);
+        }
+
+        req->msg_id = msgid_c;
+    }
+
+    if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK)  {
+            printf("M: ERROR: %s\n", res->text);
+        }
+    }         
+}
+
+void list_files(char **args, Message* req, Message* res) {
+
 }
 
 void delete_file() {
-	// Node* node = malloc(sizeof(Node));
-    // node->type = type;
-    // node->meta = (type == FS_FILE) ? (malloc(sizeof(FileMeta))) : (NULL) ;
-    // strcpy(node->name, name);
-    // node->num_children = 0;
-    // for(int i = 0; i<MAX_CHILDREN; ++i)
-    //     node->child[i] = NULL;
-    // return node;
+    /*
+        TODO
+    */
+}
+
+void add_chunks(char **args, Message* req, Message* res){
+    /*
+        TODO:
+    */
+}
+
+void start_data_server(char **args, Message* req, Message *res) {
+    int argc = count_args(args);
+    if (argc != 2) {
+        printf("Usage: startd <numservers>\n");
+        return;
+    }
+    req->mtype = START_DSERVER;
+    int len = strlen(args[1]);
+    if (args[1][len-1] == '\n')
+        args[1][len-1] = '\0';
+    sprintf(req->text,"%s", args[1]);
+
+    if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK) {
+            printf("M: ERROR: %s\n", res->text);
+        }
+    }
+}
+
+void stop_data_server(char **args, Message* req, Message *res) {
+
+    req->mtype = STOP_DSERVER;
+    if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK) {
+            printf("M: ERROR: %s\n", res->text);
+        }
+    }
+}
+
+int str_equals(char*a, const char *b) {
+    return (strcmp(a, b) == 0);
 }
 
 int main() 
 {	init_mesg_queue();
-	Message msg;
-	msg.mtype = 1;
-	while(1){
-		fgets(msg.text, 1000, stdin);
-		if (strcmp(msg.text, "exit") == 0)
-			exit(EXIT_SUCCESS);
-		msgsnd(msgid_m, &msg, sizeof(msg), 0); 
-	}
-	printf("Data sent is : %s \n", msg.text); 
 
+    char *input;
+    char **args;
+
+	Message req;
+    Message res;
+
+	while(1){
+
+        if(*(input = get_input()) == '\n') continue;
+        
+        if (str_equals(input, "exit\n")){
+            exit(EXIT_SUCCESS);
+        }
+        
+        char **args = parse_input(input, " ");
+        
+        if (str_equals(args[0], "af")){
+            add_file(args, &req, &res);
+        } 
+        
+        else if (str_equals(args[0], "ac")){
+            add_chunks(args, &req, &res);
+        }
+
+        else if (str_equals(args[0], "ls")){
+            list_files(args, &req, &res);
+        }
+        
+        else if (str_equals(args[0], "startd")){
+            start_data_server(args, &req, &res);
+        }
+
+        else if (str_equals(args[0], "stopd")){
+            stop_data_server(args, &req, &res);
+        }
+	}
 	return 0; 
 } 

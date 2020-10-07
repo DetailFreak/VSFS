@@ -24,39 +24,44 @@ int count_d;
 /*
     Operation Codes 
 */
+#define STOP_DSERVER 30
+#define START_DSERVER 40
 #define ADD_FILE 50
 #define ADD_CHUNK 60
-#define CHUNK_ADDRESSES 70
-#define ADD_CHUNK_DATA 80
-#define MOVE 90
-#define COPY 100
-#define COPY_CHUNK 110
-#define ADD_CHUNK_DATA 120
+#define RM_CHUNK 70
+#define CHUNK_ADDRESSES 80
+#define ADD_CHUNK_DATA 90
+#define MOVE 100
+#define COPY 110
+#define COPY_CHUNK 120
 #define REMOVE 130
 #define DELETE_CHUNK 140
-#define EXEC_CHUNK 140
-#define EXEC_DATA 150
+#define EXEC_CHUNK 150
+#define EXEC_DATA 160
 /*
     Ack Codes
 */
-#define OK 200
-#define ERROR 400
+#define ACK 500
+#define OK 1
+#define ERROR 0
+#define DEAD 2
 /*
     Common Message Buffer structures
 */
+#define MAX_SIZE 512
+
 typedef struct mesg_buffer {
 	long mtype; 
+    int operation;
 	char text[MAX_SIZE]; 
     char filepath[MAX_SIZE];
-	char filename[MAX_SIZE];
 	char chunkname[MAX_SIZE];
+    int addr_d[NUM_REPLICAS];
 	long server_id;
+    int msg_id;
+    int chunk_size;
 } Message; 
 
-typedef struct AddFileMessage {
-    long mtype;
-    char 
-}
 /*
     Safe variants of syscalls. For cleaner code
 */
@@ -128,6 +133,34 @@ char **parse_input(char *input, char *sep){
     }
     command[i] = NULL;
     return command;
+}
+
+int async_recv(int msgid, Message* msg, int type) {
+    if (msgrcv(msgid, msg, sizeof(Message), type, IPC_NOWAIT) != -1) 
+	    return 1; 
+    else return 0;
+}
+
+int sync_recv(int msgid, Message* msg, int type) {
+    if (msgrcv(msgid, msg, sizeof(Message), type, 0) != -1) 
+	    return 1; 
+    else return 0;
+}
+
+int sync_send(int msgid, Message* msg) {
+    if (msgsnd(msgid, msg, sizeof(Message), 0) != -1)
+        return 1;
+    else return 0;
+    
+}
+
+int count_args(char ** args) {
+    int count = 0;
+    while(*args) {
+        args++;
+        count ++;
+    } 
+    return count;
 }
 
 #endif
