@@ -29,12 +29,9 @@ typedef struct Node {
 void init_chunk(Chunk* chunk, const char* chunk_name, int * node_addresses) {
     printf("\tinitializing chunk \"%s\"\n", chunk_name);
     strcpy(chunk->name, chunk_name);
-    printf("before possible segfault\n");
     for(int i=0; i<NUM_REPLICAS; ++i) {
         chunk->addr[i] = node_addresses[i];
     }
-        printf("after possible segfault\n");
-
 }
 
 FileMeta* mkmeta() {
@@ -165,7 +162,7 @@ int insert_node(Node* fs, const char* pth, int type, const char* name) {
 }
 
 int delete_node(Node* fs, const char* pth, int type, const char* name, char * error) {
-    printf("deleting file \"%s\" at \"%s\"\n", name, pth);
+    printf("\tdeleting file \"%s\" at \"%s\"\n", name, pth);
 
     char *path = malloc(sizeof(pth));
     strcpy(path, pth);
@@ -284,7 +281,6 @@ char* get_chunk_name(const char* path, int chunk_number) {
 }
 
 int* get_replica_addresses() {
-    srand(time(0));
     int *rand_idxs = num_rand_in(NUM_REPLICAS, 0, count_d-1); 
     int *addresses = malloc(NUM_REPLICAS * sizeof(int));
     for(int i = 0; i < NUM_REPLICAS; ++i){
@@ -358,6 +354,15 @@ void add_chunk_req(Node* fs, Message *req, Message *res) {
     char error[128];
     if (add_chunk(fs, req->filepath, error) != -1){
         printf("SUCESS\n");
+        Node *file = find_node(fs, req->filepath);
+        Chunk *chunk = &file->meta->chunks[file->meta->num_chunks-1];
+        strcpy(res->chunkname, chunk->name);
+        memcpy(res->addr_d, chunk->addr, 3*sizeof(int));
+        sprintf(res->text, "\tChunk [%d] -> [", file->meta->num_chunks);
+        for(int i=0; i<NUM_REPLICAS; ++i){
+            sprintf(res->text + strlen(res->text),"%d, ", chunk->addr[i]);
+        } sprintf(res->text + strlen(res->text),"]");
+
         res->operation = OK;
     } else {
         printf("FAILURE\n");
@@ -488,7 +493,7 @@ void handle_advertisements(Message *req) {
     }
 
 int main() {
-
+    srand(time(0));
     init_mesg_queue();
     count_d = 0;
     

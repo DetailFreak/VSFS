@@ -147,6 +147,8 @@ void add_chunks(char **args, Message* req, Message* res){
     if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
         if (res->operation != OK)  {
             printf("M: ERROR: %s\n", res->text);
+        } else {
+            printf("%s\n", res->text);
         }
     }    
 }
