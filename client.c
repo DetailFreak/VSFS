@@ -77,9 +77,29 @@ void delete_file() {
 }
 
 void add_chunks(char **args, Message* req, Message* res){
-    /*
-        TODO:
-    */
+    int argc = count_args(args);
+    if (argc != 2) {
+        printf("Usage: ac <path to file>\n");
+        return;
+    }
+    req->mtype = ADD_CHUNK;
+    
+    int len = strlen(args[1]);
+    if (args[1][len-1] == '\n')
+        args[1][len-1] = '\0';
+    
+    if (args[1][0] != '/'){
+        sprintf(req->filepath, "/%s", args[1]);
+    } else {
+        strcpy(req->filepath, args[1]);
+    }
+    
+    req->msg_id = msgid_c;
+    if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK)  {
+            printf("M: ERROR: %s\n", res->text);
+        }
+    }    
 }
 
 void start_data_server(char **args, Message* req, Message *res) {

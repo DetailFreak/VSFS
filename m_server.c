@@ -27,11 +27,14 @@ typedef struct Node {
 } Node;
 
 void init_chunk(Chunk* chunk, const char* chunk_name, int * node_addresses) {
-    printf("initializing chunk \"%s\"\n", chunk_name);
+    printf("\tinitializing chunk \"%s\"\n", chunk_name);
     strcpy(chunk->name, chunk_name);
+    printf("before possible segfault\n");
     for(int i=0; i<NUM_REPLICAS; ++i) {
         chunk->addr[i] = node_addresses[i];
     }
+        printf("after possible segfault\n");
+
 }
 
 FileMeta* mkmeta() {
@@ -69,7 +72,7 @@ Node* find_child(Node *fs, const char* name){
 }
 
 int insert_child(Node* fs, int type, const char* name) {
-    printf("inserting child \"%s\"\n", name);
+    printf("\tinserting child \"%s\"\n", name);
     if (fs->num_children == MAX_CHILDREN){
         printf("Error insert_child: Node limit reached!\n");
         return -1;
@@ -96,7 +99,7 @@ int find_child_idx(Node* fs, const char* name){
 }
 
 int delete_child(Node *fs, const char* name) {
-    printf("deleting child \"%s\"\n", name);
+    printf("\tdeleting child \"%s\"\n", name);
     int i, j;
     if ((i = find_child_idx(fs, name)) == -1){
         printf("Error deleting, Node not found!.\n");
@@ -142,7 +145,7 @@ Node* find_node(Node* fs, const char* pth) {
 }
 
 int insert_node(Node* fs, const char* pth, int type, const char* name) {
-    printf("inserting file \"%s\" at \"%s\"\n", name, pth);
+    printf("\tinserting file \"%s\" at \"%s\"\n", name, pth);
 
     char *path = malloc(sizeof(pth));
     strcpy(path, pth);
@@ -297,15 +300,16 @@ int add_chunk(Node* fs, const char* path, char* error) {
         return -1;
     }
     FileMeta* meta = file->meta;
-    
-    if (meta->num_chunks >= (0.7*meta->buff_size)){
-        meta->buff_size *= 2;
-        meta->chunks = realloc(meta->chunks, meta->buff_size);
+    if (meta->num_chunks >= (int)meta->buff_size - 10){
+        meta->buff_size = (meta->buff_size > 0) ? (meta->buff_size * 2) : (10);
+        meta->chunks = realloc(meta->chunks, (int)meta->buff_size*sizeof(Chunk));
     }
     
     char* chunk_name = get_chunk_name(path, meta->num_chunks);
+
     int* addresses = get_replica_addresses();
-    init_chunk(&(meta->chunks[meta->num_chunks++]), chunk_name, addresses);
+
+    init_chunk(&meta->chunks[meta->num_chunks++], chunk_name, addresses);
     return 0;
 }
 
@@ -328,16 +332,39 @@ void add_file_req(Node* fs, Message *req, Message *res) {
     sync_send(req->msg_id, res);
 }
 
+void print_chunks(Node* fs, const char * path) {
+    Node *file = find_node(fs, path);
+    
+    if (file) {
+        
+        printf("Chunk locations for \"%s\":\n", file->name);
+        FileMeta *meta = file->meta;
+       
+        for(int i = 0; i<meta->num_chunks; ++i) {
+            printf("\tChunk %d -> ", i+1);
+            for(int j = 0; j < NUM_REPLICAS; ++j) {
+                printf("%d ", meta->chunks[i].addr[j]);
+            } printf("\n");
+        }
+    } else {
+        printf("File \"%s\" does not exist!\n", path);
+    }
+}
+
 void add_chunk_req(Node* fs, Message *req, Message *res) {
-    printf("handling ADD_CHUNK request\n");
 
     char error[128];
     if (add_chunk(fs, req->filepath, error) != -1){
-        res->mtype = OK;
+        printf("SUCESS\n");
+        res->operation = OK;
     } else {
-        res->mtype = ERROR;
+        printf("FAILURE\n");
+        res->operation = ERROR;
         strcpy(res->text, error);
     }
+    res->mtype = ACK;
+    print_chunks(fs, req->filepath);
+    sync_send(req->msg_id, res);
 }
 
 void start_dserver(Node* fs, Message *req, Message *res){
@@ -374,7 +401,9 @@ void stop_dserver(Node* fs, Message *req, Message *res) {
     printf("STOP_DSERVER: \n");
     res->operation = STOP_DSERVER;
     for(int i = 0; i<count_d; ++i) {
+        printf("message sent to addr_d[%d]=%d\n", i, addr_d[i]);
         res -> mtype = addr_d[i];
+        strcpy(res -> text, "STOP_DSERVER");
         sync_send(msgid_d, res);
     }
     res->mtype = ACK;

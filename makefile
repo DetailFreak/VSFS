@@ -1,6 +1,11 @@
 all: c m d
 .PHONY: all
 
+clean:
+	rm -rf server_*/
+	rm *.out
+.PHONY: clean
+
 c : client.out
 
 m : m_server.out

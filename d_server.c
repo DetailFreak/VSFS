@@ -84,8 +84,9 @@ int main(int argc, char** argv)
 	do
 	{
 		if(async_recv(msgid_d, &req, server_id)) {
+			printf("D:server_%d saw %s\n", server_id, req.text);
 			if(req.operation == ADD_CHUNK){
-				add_chunk(servername, &req);
+				add_chunk(servername, &req); 
 			}
 			if(req.operation == RM_CHUNK){
 				remove_chunk(servername, &req);
