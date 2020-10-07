@@ -98,15 +98,17 @@ int find_child_idx(Node* fs, const char* name){
     return -1;
 }
 
-int delete_child(Node *fs, const char* name) {
+int delete_child(Node *fs, const char* name, char* error) {
     printf("\tdeleting child \"%s\"\n", name);
     int i, j;
     if ((i = find_child_idx(fs, name)) == -1){
-        printf("Error deleting, Node not found!.\n");
+        sprintf(error,"Error deleting, Node not found!.\n");
         return -1;
     }
 
     if (fs->child[i]->type == FS_FILE){
+        if (fs->child[i]->meta->num_chunks) 
+            free(fs->child[i]->meta->chunks);
         free(fs->child[i]->meta);
     } free(fs->child[i]);
 
@@ -162,7 +164,7 @@ int insert_node(Node* fs, const char* pth, int type, const char* name) {
     return 0;
 }
 
-int delete_node(Node* fs, const char* pth, int type, const char* name) {
+int delete_node(Node* fs, const char* pth, int type, const char* name, char * error) {
     printf("deleting file \"%s\" at \"%s\"\n", name, pth);
 
     char *path = malloc(sizeof(pth));
@@ -173,7 +175,7 @@ int delete_node(Node* fs, const char* pth, int type, const char* name) {
         printf("Error delete_node: invalid path\n");
         return -1;
     }
-    if (delete_child(parent, name) == -1) {
+    if (delete_child(parent, name, error) == -1) {
         printf("Error delete_node: insert child failed\n");
         return -1;
     }
@@ -367,6 +369,47 @@ void add_chunk_req(Node* fs, Message *req, Message *res) {
     sync_send(req->msg_id, res);
 }
 
+void delete_file_req(Node* fs, Message *req, Message *res) {
+    printf("DELETE_FILE: %s\n", req->filepath);
+
+    char error[128];
+    char ** parts = divide_path(req->filepath);
+    if (delete_node(fs, parts[0], FS_FILE, parts[1], error) != -1){
+        printf("SUCESS\n");
+        res->operation = OK;
+    } else {
+        printf("FAILURE\n");
+        res->operation = ERROR;
+        strcpy(res->text, error);
+    }
+    res->mtype = ACK;
+    print_chunks(fs, req->filepath);
+    sync_send(req->msg_id, res);
+    free(parts);
+}
+
+void list_files(Node*fs, Message *req, Message * res) {
+    printf("LIST_FILES: %s\n", req->filepath);
+    if (strcmp(req->filepath, "") == 0 || strcmp(req->filepath, "/") == 0)
+        fs = fs;
+    else fs = find_node(fs, req->filepath);
+
+    if (fs && fs->type == FS_DIR) {
+        sprintf(res->text, "");
+        for(int i = 0; i<fs->num_children; ++i)
+            sprintf(res->text + strlen(res->text),"%s (%s)\t", fs->child[i]->name, type2str(fs->child[i]->type));
+        res->operation = OK;
+    } else {
+        res->operation = ERROR;
+        if (!fs)
+            strcpy(res->text, "Path not found");
+        else if (fs->type == FS_FILE)
+             strcpy(res->text, "Cannot list: This is a file, not a directory");
+    }
+    res->mtype = ACK;
+    sync_send(req->msg_id, res);
+}
+
 void start_dserver(Node* fs, Message *req, Message *res){
     printf("START_DSERVER: %s\n", req->text);
     int num_servers = atoi(req->text);
@@ -433,6 +476,17 @@ void print_dservers() {
     } printf("\n");
 }
 
+void handle_advertisements(Message *req) {
+    if(req->operation == OK){
+        // printf("D:%s , serverid:%d is up\n", req->text, req->server_id);
+        add_dserver(req->server_id);
+    } 
+    else if (req->operation == DEAD) {
+        // printf("D:%s is down\n", req->text);
+        remove_dserver(req->server_id);
+    }
+    }
+
 int main() {
 
     init_mesg_queue();
@@ -457,8 +511,14 @@ int main() {
         if (async_recv(msgid_m, &req, ADD_FILE)) {
             add_file_req(fs, &req, &res);
         }
+        if (async_recv(msgid_m, &req, DELETE_FILE)) {
+            delete_file_req(fs, &req, &res);
+        }
         if (async_recv(msgid_m, &req, ADD_CHUNK)) {
             add_chunk_req(fs, &req, &res);
+        }
+        if (async_recv(msgid_m, &req, LIST_FILES)) {
+            list_files(fs, &req, &res);
         }
         if (async_recv(msgid_m, &req, START_DSERVER)) {
             start_dserver(fs, &req, &res);
@@ -468,14 +528,7 @@ int main() {
         }
 
         if (async_recv(msgid_m, &req, ACK)) {
-            if(req.operation == OK){
-                printf("D:%s , serverid:%d is up\n", req.text, req.server_id);
-                add_dserver(req.server_id);
-            } 
-            else if (req.operation == DEAD) {
-                printf("D:%s is down\n", req.text);
-                remove_dserver(req.server_id);
-            }
+            handle_advertisements(&req);
             print_dservers();
         }
         //     printf("Got ADD_CHUNK Message: %s", req.text);

@@ -24,13 +24,14 @@ int count_d;
 /*
     Operation Codes 
 */
+#define LIST_FILES 20
 #define STOP_DSERVER 30
 #define START_DSERVER 40
 #define ADD_FILE 50
 #define ADD_CHUNK 60
 #define RM_CHUNK 70
 #define CHUNK_ADDRESSES 80
-#define ADD_CHUNK_DATA 90
+#define DELETE_FILE 90
 #define MOVE 100
 #define COPY 110
 #define COPY_CHUNK 120

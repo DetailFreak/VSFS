@@ -67,13 +67,62 @@ void add_file(char **args, Message* req, Message* res){
 }
 
 void list_files(char **args, Message* req, Message* res) {
+    int argc = count_args(args);
+    
+    req->mtype = LIST_FILES;
+    req->msg_id = msgid_c;
 
+    if(argc == 1) {
+        strcpy(req->filepath,"/");
+    }
+
+    if (argc == 2) {
+        int len = strlen(args[1]);
+        if (args[1][len-1] == '\n')
+            args[1][len-1] ='\0';
+
+        if (args[1][0] != '/'){
+            sprintf(req->filepath, "/%s", args[1]);
+        } else {
+            strcpy(req->filepath, args[1]);
+        }
+    }
+
+     if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK)  {
+            printf("M: ERROR: %s\n", res->text);
+        } else {
+            printf("%s\n", res->text);
+        }
+    }
 }
 
-void delete_file() {
-    /*
-        TODO
-    */
+void delete_file(char **args, Message* req, Message* res) {
+    int argc = count_args(args);
+    if (argc != 2) {
+        printf("Usage: rm <path to file> \n");
+        return;
+    }    
+    req->mtype = DELETE_FILE;
+    req->msg_id = msgid_c;
+
+    if (argc == 2) {
+        int len = strlen(args[1]);
+        if (args[1][len-1] == '\n')
+            args[1][len-1] ='\0';
+
+        if (args[1][0] != '/'){
+            sprintf(req->filepath, "/%s", args[1]);
+        } else {
+            strcpy(req->filepath, args[1]);
+        }
+    }
+
+     if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK)  {
+            printf("M: ERROR: %s\n", res->text);
+        } 
+    }
 }
 
 void add_chunks(char **args, Message* req, Message* res){
@@ -164,6 +213,10 @@ int main()
 
         else if (str_equals(args[0], "ls")){
             list_files(args, &req, &res);
+        }
+
+        else if (str_equals(args[0], "rm")){
+            delete_file(args, &req, &res);
         }
         
         else if (str_equals(args[0], "startd")){
