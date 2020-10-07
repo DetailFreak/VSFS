@@ -19,7 +19,7 @@ char* get_input(){
 void add_file(char **args, Message* req, Message* res){
 	int argc = count_args(args);
     if (argc < 2 || argc > 3) {
-        printf("Usage: addfile [optional -f] <path to file> \n");
+        printf("Usage: af [optional -f] <path to file> \n");
         return;
     }
     req->mtype = ADD_FILE;
