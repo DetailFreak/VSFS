@@ -1,15 +1,21 @@
 #include "vsfs_config.h"
+Message req;
+Message res;
 
 void add_chunk(char *server, Message *m){
 	printf("Data %s \n", m->text);
 
 	FILE *fp;
 	char filename[256];
-	snprintf(filename, 256, "%s/%s.txt", server, m->chunkname);
+	snprintf(filename, 256, "%s/%s", server, m->chunkname);
 
 	fp = fopen(filename,"w");
 	fwrite(m->text, m->chunk_size, 1, fp);
 	fclose(fp);
+
+	m->mtype = ACK;
+    m->operation = OK;
+    sync_send(msgid_c, m);
 }
 
 
@@ -19,9 +25,8 @@ void remove_chunk(char *server, Message *m){
 	m->mtype = 3;
 
 	// puts("inside remove chunk");
-
-	puts(filename);
-	snprintf(filename, 256, "%s/%s.txt", server, m->chunkname);
+	snprintf(filename, 256, "%s/%s", server, m->chunkname);
+	// puts(filename);
 
 	while( access(filename, F_OK ) != -1 ) {
     	// file exists
@@ -44,7 +49,7 @@ void send_chunk(long receiver_id, Message *m,  char *chunkname, char *server_nam
 	m->operation = ADD_CHUNK;
 	m->mtype = receiver_id;
 	strcpy(m->chunkname, chunkname);
-	sprintf(srcfile,"%s/%s.txt", server_name, m->chunkname);
+	sprintf(srcfile,"%s/%s", server_name, m->chunkname);
 
 	file = fopen(srcfile, "r");
 	if(file != NULL){
@@ -77,10 +82,11 @@ int main(int argc, char** argv)
 	snprintf(servername, 256, "server_%ld", server_id);
 
 	advertise_self(msgid_m, server_id, servername, &res);
-    // msgctl(msgid_cd, IPC_RMID, NULL);
+    // msgctl(msgid_d, IPC_RMID, NULL);
+    // msgctl(msgid_c, IPC_RMID, NULL);
 	// remove_chunk("server_3");
-	if(server_id == 1)
-		// send_chunk(2, "openflow_Group_select", 4, server_id, "server_1");
+	// if(server_id == 1)
+	// 	send_chunk(2, "openflow_Group_select", 4, server_id, "server_1");
 	do
 	{
 		if(async_recv(msgid_d, &req, server_id)) {

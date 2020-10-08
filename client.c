@@ -182,6 +182,82 @@ void stop_data_server(char **args, Message* req, Message *res) {
     }
 }
 
+
+char* get_chunk_name(const char* path, int chunk_number) {
+
+    char* chunk_name = malloc(512);
+    sprintf(chunk_name, "%s%d", path, chunk_number);
+    return chunk_name;
+}
+
+
+void send_file(char **args, Message* req, Message* res){
+    int argc = count_args(args);
+    if(argc != 4){
+        puts("Usage: sf <path-to-file-in-vsfs> <path-to-file-in-local> <chunk-size>");
+        return;
+    }
+
+    int len1 = strlen(args[1]);
+    if(args[1][len1-1] == '\n')
+        args[1][len1-1] = '\0';
+
+    int len2 = strlen(args[2]);
+    if(args[2][len1-1] == '\n')
+        args[2][len1-1] = '\0';
+    
+    if(args[1][0] != '/'){
+        sprintf(req->filepath, "/%s", args[1]);
+    }else{
+        strcpy(req->filepath, args[1]);
+    }
+
+    // to-do same as add_chunks function. Need to refactor the code. starts here...
+    req->msg_id = msgid_c;
+    req->mtype = ADD_CHUNK;
+    if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK)  {
+            printf("M: ERROR: %s\n", res->text);
+        } else {
+            printf("%s\n", res->text);
+        }
+    }
+
+    int server_ids[3];
+    for(int i=0; i<3; i++){
+        server_ids[i] = res->addr_d[i];
+    }
+    // untill here
+
+    FILE* file = NULL;
+    size_t bytes_read = 0;
+    int chunk_no = 0;
+
+    req->msg_id = msgid_d;
+    req->chunk_size = atoi(args[3]);
+    req->operation = ADD_CHUNK;
+
+    file = fopen(args[2], "r");
+    if(file != NULL){
+        while((bytes_read = fread(req->text, 1, req->chunk_size, file)) > 0){
+            for(int i=0; i<3; i++){
+                req->mtype = server_ids[i];
+                strcpy(req->chunkname, get_chunk_name(args[1], chunk_no));
+                // printf("----- %d ---- %d ------ %s \n", req->msg_id, req->chunk_size, req->chunkname);
+
+                if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, ACK)){
+                    if (res->operation != OK)  {
+                        printf("M: ERROR: %s\n", res->text);
+                    } else {
+                        printf(" Chunk succesfully sent %s\n", res->text);
+                    }
+                }   
+            }
+            chunk_no++;
+        }
+    }
+}
+
 int str_equals(char*a, const char *b) {
     return (strcmp(a, b) == 0);
 }
@@ -227,6 +303,10 @@ int main()
 
         else if (str_equals(args[0], "stopd")){
             stop_data_server(args, &req, &res);
+        }
+
+        else if(str_equals(args[0], "sf")){
+            send_file(args, &req, &res);
         }
 	}
 	return 0; 

@@ -95,12 +95,15 @@ char* getcwd_safe(char* buff, size_t siz) {
 void init_mesg_queue(){
 	char msgq_path[MAX_SIZE];
 	getcwd_safe(msgq_path, MAX_SIZE);
-	key_t key_c = ftok_safe(msgq_path, 'C'); 
+	key_t key_c = ftok_safe(msgq_path, 'X');
 	key_t key_m = ftok_safe(msgq_path, 'M');
     key_t key_d = ftok_safe(msgq_path, 'D');
 	msgid_c = msgget_safe(key_c, 0666 | IPC_CREAT);
 	msgid_m = msgget_safe(key_m, 0666 | IPC_CREAT);
 	msgid_d = msgget_safe(key_d, 0666 | IPC_CREAT);
+    // printf("msg_c %d \n", msgid_c);
+    // printf("msg_m %d \n", msgid_m);
+    // printf("msg_d %d \n", msgid_d);
 }
 
 /*
