@@ -210,7 +210,6 @@ void printfs(Node* fs) {
 }
 
 Node* create_path(Node* fs, const char* path) {
-    // printf("creating path \"%s\"\n", path);
 
     Node* temp = fs;    
     char path_cpy[256];
@@ -330,6 +329,79 @@ void add_file_req(Node* fs, Message *req, Message *res) {
     sync_send(req->msg_id, res);
 }
 
+int duplicate_file(Node *fs, const char *src, const char* dst, int force, char *error) {
+    printf("\tduplicating file from \"%s\" to \"%s\"\n", src, dst);
+    
+    Node *fsrc = find_node(fs, src), *fdst = find_node(fs, dst);
+    
+    if (!fsrc) {
+        printf("source file \"%s\" does not exist!\n",src);
+        return -1;
+    }
+    if (fdst) {
+        printf("destination file \"%s\" already exists!",dst);
+        return -1;
+    }
+
+    char ** dst_parts = divide_path(dst);
+    if (add_file(fs, dst_parts[0], dst_parts[1], force, error) == -1) {
+        printf("add file failed\n");
+        return -1;
+    } fdst = find_node(fs, dst);
+
+    int num_chunks = fsrc->meta->num_chunks;
+    fdst->meta->num_chunks = num_chunks;
+    fdst->meta->chunks = malloc(sizeof(Chunk) * fsrc->meta->buff_size);
+    fdst->meta->buff_size = fsrc->meta->buff_size;
+
+    for(int i = 0; i<num_chunks; ++i) {
+        init_chunk(fdst->meta->chunks + i, fsrc->meta->chunks[i].name, fsrc->meta->chunks[i].addr);
+    }
+
+    return 0;
+}
+
+int move_file(Node *fs, const char *src, const char* dst, int force, char *error) {
+    if (duplicate_file(fs, src, dst, force, error) == -1) {
+        printf("Couldn't duplicate file\n");
+        return -1;
+    }
+    char ** parts = divide_path(src);
+    if (delete_node(fs, parts[0], FS_FILE, parts[1], error) == -1) {
+        printf("Error in delete_node\n");
+        return -1;
+    }
+    return 0;
+}
+
+int copy_file(Node* fs, const char *src, const char* dst, int force, char *error) {
+    printf("\tcopying file from \"%s\" to \"%s\" %d\n",  src, dst, force);
+    
+    Node *fsrc = find_node(fs, src), *fdst = find_node(fs, dst);
+    
+    if (!fsrc) {
+        printf("source file \"%s\" does not exist!\n",src);
+        return -1;
+    }
+    if (fdst) {
+        printf("destination file \"%s\" already exists!",dst);
+        return -1;
+    }
+
+    char ** dst_parts = divide_path(dst);
+    if (add_file(fs, dst_parts[0], dst_parts[1], force, error) == -1) {
+        printf("add file failed\n");
+        return -1;
+    }
+
+    int num_chunks = fsrc->meta->num_chunks;
+    for(int i = 0; i<num_chunks; ++i) {
+        add_chunk(fs,dst, error);
+    }
+
+    return 0;
+}
+
 void print_chunks(Node* fs, const char * path) {
     Node *file = find_node(fs, path);
     
@@ -349,6 +421,24 @@ void print_chunks(Node* fs, const char * path) {
     }
 }
 
+void copy_file_req(Node* fs, Message *req, Message *res)  {
+    printf("COPY: %s %s\n", req->filepath, req->chunkname);
+    
+    char error[128];
+    if (copy_file(fs, req->filepath, req->chunkname, (req->text[0] == 'f'), error) != -1) {
+        printf("SUCCESS\n");
+        res->operation = OK;
+    } else {
+        strcpy(res->text, error);
+        printf("FAILURE\n");
+        res->operation = ERROR;
+    }
+
+    res->mtype = ACK;
+    print_chunks(fs, req->chunkname);
+    sync_send(req->msg_id, res);
+}
+
 void add_chunk_req(Node* fs, Message *req, Message *res) {
 
     char error[128];
@@ -357,7 +447,7 @@ void add_chunk_req(Node* fs, Message *req, Message *res) {
         Node *file = find_node(fs, req->filepath);
         Chunk *chunk = &file->meta->chunks[file->meta->num_chunks-1];
         strcpy(res->chunkname, chunk->name);
-        memcpy(res->addr_d, chunk->addr, 3*sizeof(int));
+        memcpy(res->addr_d, chunk->addr, NUM_REPLICAS*sizeof(int));
         sprintf(res->text, "\tChunk [%d] -> [", file->meta->num_chunks);
         for(int i=0; i<NUM_REPLICAS; ++i){
             sprintf(res->text + strlen(res->text),"%d, ", chunk->addr[i]);
@@ -391,7 +481,27 @@ void delete_file_req(Node* fs, Message *req, Message *res) {
     print_chunks(fs, req->filepath);
     sync_send(req->msg_id, res);
     free(parts);
+} 
+
+void move_file_req(Node* fs, Message *req, Message *res) {
+    printf("MOVE: %s %s\n", req->filepath, req->chunkname);
+
+     char error[128];
+    if (move_file(fs, req->filepath, req->chunkname, (req->text[0] == 'f'), error) != -1) {
+        printf("SUCCESS\n");
+        res->operation = OK;
+    } else {
+        strcpy(res->text, error);
+        printf("FAILURE\n");
+        res->operation = ERROR;
+    }
+
+    res->mtype = ACK;
+    print_chunks(fs, req->chunkname);
+    sync_send(req->msg_id, res);
+    
 }
+
 
 void list_files(Node*fs, Message *req, Message * res) {
     printf("LIST_FILES: %s\n", req->filepath);
@@ -400,7 +510,7 @@ void list_files(Node*fs, Message *req, Message * res) {
     else fs = find_node(fs, req->filepath);
 
     if (fs && fs->type == FS_DIR) {
-        sprintf(res->text, "");
+        res->text[0] = '\0';
         for(int i = 0; i<fs->num_children; ++i)
             sprintf(res->text + strlen(res->text),"%s (%s)\t", fs->child[i]->name, type2str(fs->child[i]->type));
         res->operation = OK;
@@ -445,19 +555,6 @@ void start_dserver(Node* fs, Message *req, Message *res){
     sync_send(msgid_c, res);
 }
 
-void stop_dserver(Node* fs, Message *req, Message *res) {
-    printf("STOP_DSERVER: \n");
-    res->operation = STOP_DSERVER;
-    for(int i = 0; i<count_d; ++i) {
-        printf("message sent to addr_d[%d]=%d\n", i, addr_d[i]);
-        res -> mtype = addr_d[i];
-        strcpy(res -> text, "STOP_DSERVER");
-        sync_send(msgid_d, res);
-    }
-    res->mtype = ACK;
-    res->operation = OK;
-    sync_send(msgid_c, res);
-}
 
 void add_dserver(int server_id) {
     addr_d[count_d++] = server_id;
@@ -471,6 +568,30 @@ void remove_dserver(int server_id) {
             break;
         }
     }
+}
+
+void stop_dserver(Node* fs, Message *req, Message *res) {
+    printf("STOP_DSERVER: \n");
+    res->operation = STOP_DSERVER;
+    int killed = 0;
+    int* killed_server_ids = malloc(sizeof(count_d));
+    for(int i = 0; i<count_d; ++i) {
+        printf("message sent to addr_d[%d]=%d\n", i, addr_d[i]);
+        res -> mtype = addr_d[i];
+        strcpy(res -> text, "STOP_DSERVER");
+        if (sync_send(msgid_d, res) && sync_recv(msgid_d, req, ADV)){
+            killed_server_ids[i] = res->server_id;
+            killed++;
+        }
+    }
+    for(int i = 0; i<killed; ++i) {
+        remove_dserver(killed_server_ids[i]);
+    }
+    free(killed_server_ids);
+
+    res->mtype = ACK;
+    res->operation = OK;
+    sync_send(msgid_c, res);
 }
 
 void print_dservers() {
@@ -522,6 +643,12 @@ int main() {
         if (async_recv(msgid_m, &req, ADD_CHUNK)) {
             add_chunk_req(fs, &req, &res);
         }
+        if (async_recv(msgid_m, &req, COPY)) {
+            copy_file_req(fs, &req, &res);
+        }
+        if (async_recv(msgid_m, &req, MOVE)) {
+            move_file_req(fs, &req, &res);
+        }
         if (async_recv(msgid_m, &req, LIST_FILES)) {
             list_files(fs, &req, &res);
         }
@@ -532,7 +659,7 @@ int main() {
             stop_dserver(fs, &req, &res);
         }
 
-        if (async_recv(msgid_m, &req, ACK)) {
+        if (async_recv(msgid_m, &req, ADV)) {
             handle_advertisements(&req);
             print_dservers();
         }

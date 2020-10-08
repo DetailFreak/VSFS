@@ -43,6 +43,7 @@ int count_d;
     Ack Codes
 */
 #define ACK 500
+#define ADV 600
 #define OK 1
 #define ERROR 0
 #define DEAD 2
@@ -165,6 +166,18 @@ int count_args(char ** args) {
         count ++;
     } 
     return count;
+}
+
+char* remove_newline(char * str) {
+    int len = strlen(str);
+    if (str[len-1] == '\n')
+        str[len-1] = '\0';
+    return str;
+}
+
+void copy_path(char* dst, char *src) {
+    if (src[0] != '/') sprintf(dst, "/%s", src);
+        else strcpy(dst, src);
 }
 
 #endif
