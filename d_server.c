@@ -59,7 +59,7 @@ void send_chunk(long receiver_id, Message *m,  char *chunkname, char *server_nam
 }
 
 void advertise_self(int msgid, int serverid, char* servername, Message* msg) {
-	msg->mtype = ACK;
+	msg->mtype = ADV;
 	msg->operation = OK;
 	msg->server_id = serverid;
 	strcpy(msg->text, servername);
@@ -92,7 +92,7 @@ int main(int argc, char** argv)
 				remove_chunk(servername, &req);
 			}
 			if(req.operation == STOP_DSERVER){
-				res.mtype = ACK;
+				res.mtype = ADV;
 				res.operation = DEAD;
 				res.server_id = server_id;
 				strcpy(res.text, servername);

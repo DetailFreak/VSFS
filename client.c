@@ -97,23 +97,35 @@ void delete_file(char **args, Message* req, Message* res) {
     }
 }
 
-
 void move_file(char **args, Message* req, Message* res){
     int argc = count_args(args);
-    if (argc != 3) {
-        printf("Usage: mv <path to sourcefile> <path to destination\n");
+    if (argc < 3 || argc > 4) {
+        printf("Usage: mv [-f] <path to sourcefile> <path to destination>\n");
         return;
     }
 
-    char *src = args[1];
-    char *dst = args[2];
+    char *src, *dst;
+    if (argc == 3){
+        src = args[1];
+        dst = args[2];
+    }
+
+    if (argc == 4) {
+        char *flag = args[1];
+        src = args[2];
+        dst = args[3];
+        printf("%s\n", flag);
+        if (flag[0] == '-') sprintf(req->text, "%c", flag[1]);
+            else req->text[0] = '\0';
+    }
+
     remove_newline(src);
     remove_newline(dst);
 
     req->mtype = MOVE;
     req->msg_id = msgid_c;
     copy_path(req->filepath, src);
-    copy_path(req->text, dst);
+    copy_path(req->chunkname, dst);
 
     if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
         if (res->operation != OK)  {
@@ -121,6 +133,43 @@ void move_file(char **args, Message* req, Message* res){
         }
     }    
 }
+
+void copy_file(char **args, Message* req, Message* res){
+    int argc = count_args(args);
+    if (argc < 3 || argc > 4) {
+        printf("Usage: cp [-f] <path to sourcefile> <path to destination>\n");
+        return;
+    }
+    
+    char *src, *dst;
+    if (argc == 3){
+        src = args[1];
+        dst = args[2];
+    }
+
+    if (argc == 4) {
+        char *flag = args[1];
+        src = args[2];
+        dst = args[3];
+        if (flag[0] == '-') sprintf(req->text, "%c", flag[1]);
+            else req->text[0] = '\0';
+    }
+  
+    remove_newline(src);
+    remove_newline(dst);
+
+    req->mtype = COPY;
+    req->msg_id = msgid_c;
+    copy_path(req->filepath, src);
+    copy_path(req->chunkname, dst);
+
+    if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+        if (res->operation != OK)  {
+            printf("M: ERROR: %s\n", res->text);
+        }
+    }    
+}
+
 void add_chunks(char **args, Message* req, Message* res){
     int argc = count_args(args);
     if (argc != 2) {
@@ -212,6 +261,10 @@ int main()
 
         else if (str_equals(args[0], "mv")){
             move_file(args, &req, &res);
+        }
+        
+        else if (str_equals(args[0], "cp")){
+            copy_file(args, &req, &res);
         }
 
         else if (str_equals(args[0], "rm")){
