@@ -466,7 +466,8 @@ void add_chunk_req(Node* fs, Message *req, Message *res) {
         strcpy(res->text, error);
     }
     res->mtype = ACK;
-    print_chunks(fs, req->filepath);
+    // print_chunks(fs, req->filepath);
+    printf("%s\n", res->text);
     sync_send(req->msg_id, res);
 }
 

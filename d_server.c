@@ -3,7 +3,7 @@ Message req;
 Message res;
 
 void add_chunk(char *server, Message *m){
-	printf("Data %s \n", m->text);
+	// printf("Chunk %s \n", m->text);
 
 	FILE *fp;
 	char filename[256];
@@ -90,7 +90,7 @@ int main(int argc, char** argv)
 	do
 	{
 		if(async_recv(msgid_d, &req, server_id)) {
-			printf("D:server_%d saw %s\n", server_id, req.text);
+			// printf("D:server_%d saw %s\n", server_id, req.text);
 			if(req.operation == ADD_CHUNK){
 				add_chunk(servername, &req); 
 			}

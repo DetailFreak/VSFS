@@ -243,65 +243,70 @@ void send_file(char **args, Message* req, Message* res){
         puts("Usage: sf <path-to-file-in-vsfs> <path-to-file-in-local> <chunk-size>");
         return;
     }
+    char * vsfs_file_path = args[1];
+    char * local_file_path = args[2];
+    char * chunk_size_str = args[3];
 
-    int len1 = strlen(args[1]);
-    if(args[1][len1-1] == '\n')
-        args[1][len1-1] = '\0';
-
-    int len2 = strlen(args[2]);
-    if(args[2][len1-1] == '\n')
-        args[2][len1-1] = '\0';
-    
-    if(args[1][0] != '/'){
-        sprintf(req->filepath, "/%s", args[1]);
-    }else{
-        strcpy(req->filepath, args[1]);
-    }
+    remove_newline(chunk_size_str);
+    copy_path(req->filepath, vsfs_file_path);
+    req->msg_id = msgid_c;
 
     // to-do same as add_chunks function. Need to refactor the code. starts here...
-    req->msg_id = msgid_c;
-    req->mtype = ADD_CHUNK;
-    if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
-        if (res->operation != OK)  {
-            printf("M: ERROR: %s\n", res->text);
-        } else {
-            printf("%s\n", res->text);
-        }
+    // req->msg_id = msgid_c;
+    // req->mtype = ADD_CHUNK;
+    // if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+    //     if (res->operation != OK)  {
+    //         printf("M: ERROR: %s\n", res->text);
+    //     } else {
+    //         printf("%s\n", res->text);
+    //     }
+    // }
+
+    // int server_ids[NUM_REPLICAS];
+    // for(int i=0; i<NUM_REPLICAS; i++){
+    //     server_ids[i] = res->addr_d[i];
+    // }
+    // // untill here
+
+    // req->msg_id = msgid_d;
+    req->chunk_size = atoi(chunk_size_str);
+    // req->operation = ADD_CHUNK;
+
+    FILE* local_file = NULL;
+    if ((local_file = fopen(local_file_path, "r")) == NULL) {
+        printf("Error: Source path \"%s\" does not exist!\n", local_file_path);
+        return;
     }
 
-    int server_ids[3];
-    for(int i=0; i<3; i++){
-        server_ids[i] = res->addr_d[i];
-    }
-    // untill here
-
-    FILE* file = NULL;
+    printf("here!\n");
     size_t bytes_read = 0;
-    int chunk_no = 0;
-
-    req->msg_id = msgid_d;
-    req->chunk_size = atoi(args[3]);
-    req->operation = ADD_CHUNK;
-
-    file = fopen(args[2], "r");
-    if(file != NULL){
-        while((bytes_read = fread(req->text, 1, req->chunk_size, file)) > 0){
-            for(int i=0; i<3; i++){
-                req->mtype = server_ids[i];
-                strcpy(req->chunkname, get_chunk_name(args[1], chunk_no));
-                // printf("----- %d ---- %d ------ %s \n", req->msg_id, req->chunk_size, req->chunkname);
-
-                if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, ACK)){
-                    if (res->operation != OK)  {
-                        printf("M: ERROR: %s\n", res->text);
-                    } else {
-                        printf(" Chunk succesfully sent %s\n", res->text);
-                    }
-                }   
+    while((bytes_read = fread(req->text, 1 , req->chunk_size, local_file)) > 0){
+        //add chunk request
+        req->mtype = ADD_CHUNK;
+        if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
+            if (res->operation != OK)  {
+                printf("M: ERROR: %s\n", res->text);
+            } else {
+                // printf("%s\n", res->text);
             }
-            chunk_no++;
+        }
+
+        for(int i=0; i<NUM_REPLICAS; i++){
+            req->mtype = res->addr_d[i];
+            req->operation = ADD_CHUNK;
+            strcpy(req->chunkname, res->chunkname);
+            // printf("----- %d ---- %d ------ %s \n", req->msg_id, req->chunk_size, req->chunkname);
+
+            if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, ACK)){
+                if (res->operation != OK)  {
+                    printf("D: ERROR: %s\n", res->text);
+                } else {
+                    printf(" Chunk \"%s\" succesfully written\n", res->chunkname);
+                }
+            }   
         }
     }
+
 }
 
 int str_equals(char*a, const char *b) {
@@ -335,6 +340,10 @@ int main()
             add_chunks(args, &req, &res);
         }
 
+        else if(str_equals(args[0], "sf")){
+            send_file(args, &req, &res);
+        }
+
         else if (str_equals(args[0], "ls")){
             list_files(args, &req, &res);
         }
@@ -357,10 +366,6 @@ int main()
 
         else if (str_equals(args[0], "stopd")){
             stop_data_server(args, &req, &res);
-        }
-
-        else if(str_equals(args[0], "sf")){
-            send_file(args, &req, &res);
         }
 	}
 	return 0; 
