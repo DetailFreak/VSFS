@@ -180,18 +180,24 @@ int delete_node(Node* fs, const char* pth, int type, const char* name, char * er
 }
 
 char ** divide_path(const char* path) {
+    int N = strlen(path);
     char **parts = malloc(2*sizeof(char*));
-    for(int i = strlen(path)-1; i >= 0; --i) {
-        if (path[i] == '/' && i != strlen(path)-1) {
-            parts[0] = malloc(i+1);
-            for(int j = 0; j < i; ++j) {
-                parts[0][j] = path[j];
-            } parts[0][i] = '\0';
 
-            parts[1] = malloc(strlen(path) - i);
-            for(int j = 0; j < strlen(path) - i - 1 && path[i+j+1] != '/'; ++j) {
-                parts[1][j] = path[i+j+1];
-            } parts[1][strlen(path) - i] = '\0';
+    for(int i = N-1; i >= 0; --i) {
+        
+        if (path[i] == '/') {
+            
+            parts[0] = malloc( i + 1 );
+            parts[1] = malloc( N-1 - i + 1 );
+            
+            for(int j = 0; j < i; ++j)
+                parts[0][j] = path[j];
+            
+            for(int j = 0; j < N - i - 1; ++j)
+                parts[1][j] = path[i + j + 1];
+            
+            parts[0][i] = '\0';
+            parts[1][N - 1 - i] = '\0';
             
             return parts;
         }

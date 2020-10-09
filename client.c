@@ -32,6 +32,8 @@ void add_file(char **args, Message* req, Message* res){
         copy_path(req->filepath, filepath);
     } 
 
+    req->text[0] = '\0';
+
     if (argc == 3) {
         char * flag = args[1];
         char * filepath = args[2];
@@ -110,6 +112,8 @@ void move_file(char **args, Message* req, Message* res){
         dst = args[2];
     }
 
+    req->text[0] = '\0';
+
     if (argc == 4) {
         char *flag = args[1];
         src = args[2];
@@ -119,7 +123,6 @@ void move_file(char **args, Message* req, Message* res){
             else req->text[0] = '\0';
     }
 
-    remove_newline(src);
     remove_newline(dst);
 
     req->mtype = MOVE;
@@ -147,6 +150,8 @@ void copy_file(char **args, Message* req, Message* res){
         dst = args[2];
     }
 
+    req->text[0] = '\0';
+
     if (argc == 4) {
         char *flag = args[1];
         src = args[2];
@@ -155,7 +160,6 @@ void copy_file(char **args, Message* req, Message* res){
             else req->text[0] = '\0';
     }
   
-    remove_newline(src);
     remove_newline(dst);
 
     req->mtype = COPY;
