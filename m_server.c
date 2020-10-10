@@ -13,6 +13,7 @@ typedef struct Chunk {
 } Chunk;
 
 typedef struct FileMeta {
+    int num_refs;
     int num_chunks;
     size_t buff_size;
     Chunk *chunks;
@@ -36,6 +37,7 @@ void init_chunk(Chunk* chunk, const char* chunk_name, int * node_addresses) {
 
 FileMeta* mkmeta() {
     FileMeta* meta = malloc(sizeof(FileMeta));
+    meta->num_refs = 1;
     meta->chunks = NULL;
     meta->num_chunks = 0;
     meta->buff_size = 0;
@@ -103,11 +105,19 @@ int delete_child(Node *fs, const char* name, char* error) {
         return -1;
     }
 
-    if (fs->child[i]->type == FS_FILE){
-        if (fs->child[i]->meta->num_chunks) 
-            free(fs->child[i]->meta->chunks);
-        free(fs->child[i]->meta);
-    } free(fs->child[i]);
+    if(fs->child[i]->meta->num_refs == 1){
+        if (fs->child[i]->type == FS_FILE){
+            if (fs->child[i]->meta->num_chunks) 
+                free(fs->child[i]->meta->chunks);
+            free(fs->child[i]->meta);
+        } free(fs->child[i]);
+    } else {
+        fs->child[i]->meta->num_refs--;
+    }
+
+    /*
+        TODO: Fix memory leak, do recursive delete;
+    */
 
     for(j = i+1; j<fs->num_children; ++j){
         fs->child[j-1] = fs->child[j];
@@ -338,14 +348,10 @@ void add_file_req(Node* fs, Message *req, Message *res) {
 int duplicate_file(Node *fs, const char *src, const char* dst, int force, char *error) {
     printf("\tduplicating file from \"%s\" to \"%s\"\n", src, dst);
     
-    Node *fsrc = find_node(fs, src), *fdst = find_node(fs, dst);
+    Node *fsrc = find_node(fs, src);
     
     if (!fsrc) {
         printf("source file \"%s\" does not exist!\n",src);
-        return -1;
-    }
-    if (fdst) {
-        printf("destination file \"%s\" already exists!",dst);
         return -1;
     }
 
@@ -353,16 +359,13 @@ int duplicate_file(Node *fs, const char *src, const char* dst, int force, char *
     if (add_file(fs, dst_parts[0], dst_parts[1], force, error) == -1) {
         printf("add file failed\n");
         return -1;
-    } fdst = find_node(fs, dst);
+    } 
 
-    int num_chunks = fsrc->meta->num_chunks;
-    fdst->meta->num_chunks = num_chunks;
-    fdst->meta->chunks = malloc(sizeof(Chunk) * fsrc->meta->buff_size);
-    fdst->meta->buff_size = fsrc->meta->buff_size;
+    Node *fdst = find_node(fs, dst);
 
-    for(int i = 0; i<num_chunks; ++i) {
-        init_chunk(fdst->meta->chunks + i, fsrc->meta->chunks[i].name, fsrc->meta->chunks[i].addr);
-    }
+    free(fdst->meta);
+    fdst->meta = fsrc->meta;
+    fdst->meta->num_refs++;
 
     return 0;
 }
@@ -432,6 +435,28 @@ void copy_file_req(Node* fs, Message *req, Message *res)  {
     
     char error[128];
     if (copy_file(fs, req->filepath, req->chunkname, (req->text[0] == 'f'), error) != -1) {
+        Node *src_file = find_node(fs, req->filepath);
+        Node *cpy_file = find_node(fs, req->chunkname);
+        FileMeta *src_meta = src_file->meta;
+        FileMeta *cpy_meta = cpy_file->meta;
+
+        req->msg_id = msgid_m;
+        req->operation = COPY_CHUNK;
+
+        for(int i = 0; i < src_meta->num_chunks; ++i) {
+            req->mtype = src_meta->chunks[i].addr[0];
+            strcpy(req->chunkname, src_meta->chunks[i].name);
+
+            for(int j = 0; j < NUM_REPLICAS; ++j ){
+                req->server_id = cpy_meta->chunks[i].addr[j];
+                if (sync_send(msgid_d, req) && sync_recv(msgid_m, res, ACK) && res->operation == OK){
+                    printf("Chunk \"%s\" copied from server_%d to server_%d\n", req->chunkname, src_meta->chunks[i].addr[j], cpy_meta->chunks[i].addr[j]);
+                } else {
+                    printf("Error: %s", res->text);
+                };
+            }
+        }
+
         printf("SUCCESS\n");
         res->operation = OK;
     } else {
@@ -441,8 +466,7 @@ void copy_file_req(Node* fs, Message *req, Message *res)  {
     }
 
     res->mtype = ACK;
-    print_chunks(fs, req->chunkname);
-    sync_send(req->msg_id, res);
+    sync_send(msgid_c, res);
 }
 
 void add_chunk_req(Node* fs, Message *req, Message *res) {
@@ -484,6 +508,7 @@ void delete_file_req(Node* fs, Message *req, Message *res) {
         res->operation = ERROR;
         strcpy(res->text, error);
     }
+   
     res->mtype = ACK;
     print_chunks(fs, req->filepath);
     sync_send(req->msg_id, res);
@@ -504,7 +529,6 @@ void move_file_req(Node* fs, Message *req, Message *res) {
     }
 
     res->mtype = ACK;
-    print_chunks(fs, req->chunkname);
     sync_send(req->msg_id, res);
     
 }

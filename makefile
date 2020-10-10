@@ -2,6 +2,7 @@ all: c m d
 .PHONY: all
 
 clean:
+	ipcrm --all=msg
 	rm -rf server_*/
 	rm *.out
 .PHONY: clean

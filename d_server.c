@@ -4,10 +4,9 @@ Message res;
 
 void add_chunk(char *server, Message *m){
 	// printf("Chunk %s \n", m->text);
-
 	FILE *fp;
-	char filename[256];
-	snprintf(filename, 256, "%s/%s", server, m->chunkname);
+	char filename[600];
+	snprintf(filename, 600, "%s/%s", server, m->chunkname);
 
 	fp = fopen(filename,"w");
 	fwrite(m->text, m->chunk_size, 1, fp);
@@ -15,17 +14,17 @@ void add_chunk(char *server, Message *m){
 
 	m->mtype = ACK;
     m->operation = OK;
-    sync_send(msgid_c, m);
+    sync_send(m->msg_id, m);
 }
 
 
 void remove_chunk(char *server, Message *m){
-	char filename[256];
+	char filename[600];
 	int chunk_num = 1;
 	m->mtype = 3;
 
 	// puts("inside remove chunk");
-	snprintf(filename, 256, "%s/%s", server, m->chunkname);
+	snprintf(filename, 600, "%s/%s", server, m->chunkname);
 	// puts(filename);
 
 	while( access(filename, F_OK ) != -1 ) {
@@ -37,30 +36,61 @@ void remove_chunk(char *server, Message *m){
 		}
 		sprintf(filename, "%s/%s.txt", server, m->chunkname); 
 	} 
-
 }
 
 
-void send_chunk(long receiver_id, Message *m,  char *chunkname, char *server_name){
+void copy_chunk(char *server_name, Message *req, Message *res){
+
+	if (req->mtype == req->server_id) {
+		printf("Chunk already written!\n");
+		req->mtype = ACK;
+		req->operation = OK;
+		sprintf(req->text, "Chunk already written!\n");
+		sync_send(msgid_m, req);
+		return;
+	}
+
+	char srcfile[600], error[256];
+	snprintf(srcfile,600,"%s%s", server_name, req->chunkname);
+	
 	FILE *file = NULL;
     size_t bytesRead = 0;
-	char srcfile[128];
-
-	m->operation = ADD_CHUNK;
-	m->mtype = receiver_id;
-	strcpy(m->chunkname, chunkname);
-	sprintf(srcfile,"%s/%s", server_name, m->chunkname);
 
 	file = fopen(srcfile, "r");
-	if(file != NULL){
-		while ((bytesRead = fread(m->text, 1, 128, file)) > 0){
-			printf("----  %s ----- \n", m->text);
-			if(sync_send(msgid_d, m)){
-				perror("add chunk send error");
-			}
-		}
-		fclose(file);
+	if (!file) {
+		printf("Source chunk \"%s\" does not exist!\n", req->chunkname);
+		req->mtype = ACK;
+		req->operation = ERROR;
+		sprintf(req->text, "Source chunk \"%s\" does not exist!\n", res->chunkname);
+		sync_send(msgid_m, req);
+		return;
 	}
+	
+	fseek (file, 0, SEEK_END);
+  	size_t chunk_size = ftell (file);
+  	fseek (file, 0, SEEK_SET);
+
+	res->msg_id = msgid_d;
+	res->operation = ADD_CHUNK;
+	res->mtype = req->server_id;
+	res->chunk_size = chunk_size;
+	strcpy(res->chunkname, req->chunkname);
+	
+	if ((bytesRead = fread(res->text, chunk_size, 1 , file)) > 0){
+		printf("----  %s -----, %lu chunk_size\n", res->chunkname, chunk_size);
+		 if (sync_send(msgid_d, res) && sync_recv(msgid_d, req, ACK)){
+			if (req->operation != OK)  {
+				printf("D: ERROR: %s\n", req->text);
+			} else {
+				req->mtype = ACK;
+				req->operation = OK;
+				sync_send(msgid_m, req);
+				printf(" Chunk \"%s\" succesfully written\n", res->chunkname);
+			}
+        } 
+	}
+
+	fclose(file);
 }
 
 void advertise_self(int msgid, int serverid, char* servername, Message* msg) {
@@ -77,12 +107,11 @@ int main(int argc, char** argv)
 	init_mesg_queue();
 
 	Message req, res;
-	char servername[256];
+	char servername[512];
 	long server_id = atol(argv[1]);
 	snprintf(servername, 256, "server_%ld", server_id);
 
 	advertise_self(msgid_m, server_id, servername, &res);
-    // msgctl(msgid_d, IPC_RMID, NULL);
     // msgctl(msgid_c, IPC_RMID, NULL);
 	// remove_chunk("server_3");
 	// if(server_id == 1)
@@ -97,11 +126,18 @@ int main(int argc, char** argv)
 			if(req.operation == RM_CHUNK){
 				remove_chunk(servername, &req);
 			}
+			if(req.operation == COPY_CHUNK){
+				copy_chunk(servername, &req, &res);
+			}
+			/*
+				TODO: Execute functions
+			*/
 			if(req.operation == STOP_DSERVER){
 				res.mtype = ADV;
 				res.operation = DEAD;
 				res.server_id = server_id;
 				strcpy(res.text, servername);
+				msgctl(msgid_d, IPC_RMID, NULL);
 				sync_send(msgid_m, &res);
 				exit(EXIT_SUCCESS); 
 			}

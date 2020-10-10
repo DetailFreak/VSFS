@@ -246,31 +246,11 @@ void send_file(char **args, Message* req, Message* res){
     char * vsfs_file_path = args[1];
     char * local_file_path = args[2];
     char * chunk_size_str = args[3];
-
     remove_newline(chunk_size_str);
-    copy_path(req->filepath, vsfs_file_path);
+
     req->msg_id = msgid_c;
-
-    // to-do same as add_chunks function. Need to refactor the code. starts here...
-    // req->msg_id = msgid_c;
-    // req->mtype = ADD_CHUNK;
-    // if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK)){
-    //     if (res->operation != OK)  {
-    //         printf("M: ERROR: %s\n", res->text);
-    //     } else {
-    //         printf("%s\n", res->text);
-    //     }
-    // }
-
-    // int server_ids[NUM_REPLICAS];
-    // for(int i=0; i<NUM_REPLICAS; i++){
-    //     server_ids[i] = res->addr_d[i];
-    // }
-    // // untill here
-
-    // req->msg_id = msgid_d;
     req->chunk_size = atoi(chunk_size_str);
-    // req->operation = ADD_CHUNK;
+    copy_path(req->filepath, vsfs_file_path);
 
     FILE* local_file = NULL;
     if ((local_file = fopen(local_file_path, "r")) == NULL) {
@@ -278,7 +258,9 @@ void send_file(char **args, Message* req, Message* res){
         return;
     }
 
-    printf("here!\n");
+    printf("progress: =>");
+
+    int chunks = 0;
     size_t bytes_read = 0;
     while((bytes_read = fread(req->text, 1 , req->chunk_size, local_file)) > 0){
         //add chunk request
@@ -301,12 +283,14 @@ void send_file(char **args, Message* req, Message* res){
                 if (res->operation != OK)  {
                     printf("D: ERROR: %s\n", res->text);
                 } else {
-                    printf(" Chunk \"%s\" succesfully written\n", res->chunkname);
+                    printf("\b=>");
                 }
             }   
         }
-    }
 
+        ++chunks;
+    }
+    printf("| 100%%, %d sent in %d chunks .\n", chunks * req->chunk_size, chunks);
 }
 
 int str_equals(char*a, const char *b) {
