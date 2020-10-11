@@ -12,7 +12,7 @@ void add_chunk(char *server, Message *m){
 	fwrite(m->text, m->chunk_size, 1, fp);
 	fclose(fp);
 
-	m->mtype = atoi(server+7);
+	m->mtype = ACK;
     m->operation = OK;
     sync_send(m->msg_id, m);
 }
@@ -20,8 +20,6 @@ void add_chunk(char *server, Message *m){
 
 void remove_chunk(char *server, Message *m){
 	char filename[600];
-	int chunk_num = 1;
-	m->mtype = 3;
 
 	// puts("inside remove chunk");
 	snprintf(filename, 600, "%s/%s", server, m->chunkname);
@@ -36,16 +34,27 @@ void remove_chunk(char *server, Message *m){
 		}
 		sprintf(filename, "%s/%s.txt", server, m->chunkname); 
 	} 
+	m->mtype = ACK;
+	m->operation = OK;
+	sync_send(msgid_m, m);
+
 }
 
 
 void copy_chunk(char *server_name, Message *req, Message *res){
 
 	if (req->mtype == req->server_id) {
-		printf("Chunk already written!\n");
+		char srcfile[600], dstfile[600];
+		snprintf(srcfile,600,"%s/%s", server_name, req->chunkname);
+		snprintf(dstfile,600,"%s/%s", server_name, req->text);
+		
+		char command[1280];
+		sprintf(command, "cp %s %s", srcfile, dstfile);
+		
+		system(command);
+
 		req->mtype = ACK;
 		req->operation = OK;
-		sprintf(req->text, "Chunk already written!\n");
 		sync_send(msgid_m, req);
 		return;
 	}
@@ -71,16 +80,22 @@ void copy_chunk(char *server_name, Message *req, Message *res){
   	fseek (file, 0, SEEK_SET);
 
 	res->msg_id = msgid_d;
+	sprintf(res->text,"%ld", req->mtype);
 	res->operation = ADD_CHUNK;
 	res->mtype = req->server_id;
 	res->chunk_size = chunk_size;
-	strcpy(res->chunkname, req->chunkname);
+	strcpy(res->chunkname, req->text);
 	
-	if ((bytesRead = fread(res->text, chunk_size, 1 , file)) > 0){
+	if ((bytesRead = fread(res->text, 1 , chunk_size , file)) > 0){
 		printf("----  %s -----, %lu chunk_size\n", res->chunkname, chunk_size);
 		 if (sync_send(msgid_d, res) && sync_recv(msgid_d, req, ACK)){
 			if (req->operation != OK)  {
 				printf("D: ERROR: %s\n", req->text);
+				req->mtype = ACK;
+				req->operation = ERROR;
+				strcpy(req->text, "Chunk not written");
+				sync_send(msgid_m, req);
+				printf(" Chunk \"%s\" not written\n", res->chunkname);
 			} else {
 				req->mtype = ACK;
 				req->operation = OK;

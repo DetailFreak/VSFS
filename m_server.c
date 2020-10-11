@@ -114,7 +114,7 @@ int delete_child(Node *fs, const char* name, char* error) {
     } else {
         fs->child[i]->meta->num_refs--;
     }
-
+ 
     /*
         TODO: Fix memory leak, do recursive delete;
     */
@@ -446,6 +446,7 @@ void copy_file_req(Node* fs, Message *req, Message *res)  {
         for(int i = 0; i < src_meta->num_chunks; ++i) {
             req->mtype = src_meta->chunks[i].addr[0];
             strcpy(req->chunkname, src_meta->chunks[i].name);
+            strcpy(req->text, cpy_meta->chunks[i].name);
 
             for(int j = 0; j < NUM_REPLICAS; ++j ){
                 req->server_id = cpy_meta->chunks[i].addr[j];
@@ -525,6 +526,19 @@ void chunk_info_req(Node* fs, Message *req, Message *res) {
 
 void delete_file_req(Node* fs, Message *req, Message *res) {
     printf("DELETE_FILE: %s\n", req->filepath);
+
+    Node* to_delete = find_node(fs, req->filepath);
+    FileMeta* meta = to_delete->meta;
+    for(int i = 0; i<meta->num_chunks; ++i) {
+        strcpy(req->chunkname, meta->chunks[i].name);
+        for(int j = 0; j < NUM_REPLICAS; ++j) {
+            req->mtype = meta->chunks[i].addr[j];
+            req->operation = RM_CHUNK;
+            if (sync_send(msgid_d, req) && sync_recv(msgid_m, res, ACK) && res->operation != OK) {
+                printf("RM Error: %s\n", res->text);
+            }
+        }
+    }
 
     char error[128];
     char ** parts = divide_path(req->filepath);

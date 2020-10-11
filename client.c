@@ -229,6 +229,7 @@ void exec_file(char **args, Message* req, Message *res) {
         }
         memset(res->text, '\0', MAX_SIZE);
     }
+    printf("\n");
 }
 
 void start_data_server(char **args, Message* req, Message *res) {
@@ -314,21 +315,23 @@ void send_file(char **args, Message* req, Message* res){
         for(int i=0; i<NUM_REPLICAS; i++){
             req->mtype = addr[i];
             req->operation = ADD_CHUNK;
+            req->msg_id = msgid_c;
             strcpy(req->chunkname, chunk_name);
             // printf("----- %d ---- %d ------ %s \n", req->msg_id, req->chunk_size, req->chunkname);
 
-            if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, req->mtype)){
+            if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, ACK)){
                 if (res->operation != OK)  {
                     printf("D: ERROR: %s\n", res->text);
                 } else {
                     printf("\b=>");
+                    fflush(stdout);
                 }
             }   
         }
 
         ++chunks;
     }
-    printf("| 100%%, %d sent in %d chunks .\n", chunks * req->chunk_size, chunks);
+    printf("| 100%%, %d bytes sent in %d chunks .\n", chunks * req->chunk_size, chunks);
 }
 
 int str_equals(char*a, const char *b) {
@@ -386,7 +389,7 @@ int main()
             exec_file(args, &req, &res);
         }
         
-        else if (str_equals(args[0], "startd")){
+        else if (str_equals(args[0], "d")){
             start_data_server(args, &req, &res);
         }
 
