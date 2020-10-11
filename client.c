@@ -197,6 +197,40 @@ void add_chunks(char **args, Message* req, Message* res){
     }    
 }
 
+void exec_file(char **args, Message* req, Message *res) {
+    int len = count_args(args);
+    if (len != 3) {
+        printf("Usage: exec <command> <filepath>\n");
+        return;
+    }
+    char *command = args[1];
+    char *filepath = args[2];
+    remove_newline(filepath);
+    
+    req->msg_id = msgid_c;
+    int num_chunks = 1;
+    for(int i = 0; i < num_chunks; ++i) {
+        req->mtype = CHUNK_INFO;
+        sprintf(req->text, "%d", i);
+        copy_path(req->filepath, filepath);
+        if (sync_send(msgid_m, req) && sync_recv(msgid_c, res, ACK) && res->operation != OK)  {
+            printf("M: ERROR: %s\n", res->text);
+            break;
+        }
+        if (i == 0) num_chunks = res->chunk_size;
+        req->mtype = res->addr_d[0];
+        req->operation = EXEC_CHUNK;
+        strcpy(req->text, command);
+        strcpy(req->chunkname, res->chunkname);
+        // printf("Chunk Info [%d]: name = %s, addr_d = [%d, %d, %d] \n", i+1, res->chunkname,  res->addr_d[0], res->addr_d[1], res->addr_d[2]);
+        
+        if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, ACK) && res->operation == OK) {
+            printf("%s",res->text);
+        }
+        memset(res->text, '\0', MAX_SIZE);
+    }
+}
+
 void start_data_server(char **args, Message* req, Message *res) {
     int argc = count_args(args);
     if (argc != 2) {
@@ -227,7 +261,6 @@ void stop_data_server(char **args, Message* req, Message *res) {
         }
     }
 }
-
 
 char* get_chunk_name(const char* path, int chunk_number) {
 
@@ -273,13 +306,18 @@ void send_file(char **args, Message* req, Message* res){
             }
         }
 
+        int addr[NUM_REPLICAS];
+        char chunk_name[MAX_SIZE];
+        memcpy(addr, res->addr_d, sizeof(int) * NUM_REPLICAS);
+        strcpy(chunk_name, res->chunkname);
+
         for(int i=0; i<NUM_REPLICAS; i++){
-            req->mtype = res->addr_d[i];
+            req->mtype = addr[i];
             req->operation = ADD_CHUNK;
-            strcpy(req->chunkname, res->chunkname);
+            strcpy(req->chunkname, chunk_name);
             // printf("----- %d ---- %d ------ %s \n", req->msg_id, req->chunk_size, req->chunkname);
 
-            if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, ACK)){
+            if (sync_send(msgid_d, req) && sync_recv(msgid_c, res, req->mtype)){
                 if (res->operation != OK)  {
                     printf("D: ERROR: %s\n", res->text);
                 } else {
@@ -342,6 +380,10 @@ int main()
 
         else if (str_equals(args[0], "rm")){
             delete_file(args, &req, &res);
+        }
+        
+        else if (str_equals(args[0], "exec")){
+            exec_file(args, &req, &res);
         }
         
         else if (str_equals(args[0], "startd")){

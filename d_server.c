@@ -12,7 +12,7 @@ void add_chunk(char *server, Message *m){
 	fwrite(m->text, m->chunk_size, 1, fp);
 	fclose(fp);
 
-	m->mtype = ACK;
+	m->mtype = atoi(server+7);
     m->operation = OK;
     sync_send(m->msg_id, m);
 }
@@ -51,7 +51,7 @@ void copy_chunk(char *server_name, Message *req, Message *res){
 	}
 
 	char srcfile[600], error[256];
-	snprintf(srcfile,600,"%s%s", server_name, req->chunkname);
+	snprintf(srcfile,600,"%s/%s", server_name, req->chunkname);
 	
 	FILE *file = NULL;
     size_t bytesRead = 0;
@@ -93,6 +93,66 @@ void copy_chunk(char *server_name, Message *req, Message *res){
 	fclose(file);
 }
 
+void exec_chunk(char *server_name, Message *req, Message *res) {
+/*
+	TODO: make a pipe and execute funtion in a child process.
+	read output using "read", send result back to callee.
+*/
+	char path[512];
+	sprintf(path, "%s%s", server_name, req->chunkname);
+	printf("exec command: %s, path: %s\n",req->text, path); 
+
+	int pipe_fds[2];
+	if (pipe(pipe_fds) == -1) {
+		perror("pipe");
+	} else {
+		int pid = fork();
+		if (pid == 0) {
+		/*
+			Child process
+		*/
+			if (close(pipe_fds[0]) == -1) {
+				perror("pipe close");
+			} else {
+				if (dup2(pipe_fds[1], 1) == 0) {
+					perror("dup2");
+				} else {
+					execlp(req->text, req->text, path, (char*)NULL);
+					perror("exec");
+					req->mtype = ACK;
+					req->operation =  OK;
+					sync_send(msgid_c, req);
+				}
+			}
+		} else if (pid > 0) {
+		/*
+			parent process
+		*/	if (close(pipe_fds[1]) == -1) {
+				perror("pipe close");
+			}
+			ssize_t bytes_read;
+			if ((bytes_read = read(pipe_fds[0], req->text, 1000)) == -1){
+				perror("read");
+				exit(EXIT_FAILURE);
+			}
+			req->text[bytes_read] = '\0';
+
+			close(pipe_fds[0]);
+
+			req->mtype = ACK;
+			req->operation = OK;
+			sync_send(req->msg_id, req);
+
+		} else {
+		/*
+			fork error
+		*/
+			perror("fork");
+			exit(EXIT_FAILURE);
+		}
+	}
+}
+
 void advertise_self(int msgid, int serverid, char* servername, Message* msg) {
 	msg->mtype = ADV;
 	msg->operation = OK;
@@ -128,6 +188,9 @@ int main(int argc, char** argv)
 			}
 			if(req.operation == COPY_CHUNK){
 				copy_chunk(servername, &req, &res);
+			}
+			if(req.operation == EXEC_CHUNK){
+				exec_chunk(servername, &req, &res);
 			}
 			/*
 				TODO: Execute functions

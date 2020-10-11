@@ -495,6 +495,34 @@ void add_chunk_req(Node* fs, Message *req, Message *res) {
     sync_send(req->msg_id, res);
 }
 
+void chunk_info_req(Node* fs, Message *req, Message *res) {
+
+    char error[128];
+    Node *file = find_node(fs, req->filepath);
+    if (file){
+        int chunk_idx = atoi(req->text);
+        if (chunk_idx < file->meta->num_chunks)
+            res->chunk_size = file->meta->num_chunks;
+            strcpy(res->chunkname, file->meta->chunks[chunk_idx].name);
+            memcpy(res->addr_d, file->meta->chunks[chunk_idx].addr, sizeof(int) * NUM_REPLICAS);
+            printf("Sending chunk info for chunk %d" , chunk_idx);
+            // for(int i = 0; i<NUM_REPLICAS; ++i) {
+            //     printf("%d ", file->meta->chunks[chunk_idx].addr[i]);
+            //     res->addr_d[i] = file->meta->chunks[chunk_idx].addr[i];
+            // }
+            printf("\nSUCESS\n");
+            res->operation = OK;
+    } else {
+        printf("FAILURE: %s does not exist\n", req->filepath);
+        res->operation = ERROR;
+        // strcpy(res->text, error);
+    }
+    res->mtype = ACK;
+    // print_chunks(fs, req->filepath);
+    // printf("%s\n", res->text);
+    sync_send(req->msg_id, res);
+}
+
 void delete_file_req(Node* fs, Message *req, Message *res) {
     printf("DELETE_FILE: %s\n", req->filepath);
 
@@ -532,7 +560,6 @@ void move_file_req(Node* fs, Message *req, Message *res) {
     sync_send(req->msg_id, res);
     
 }
-
 
 void list_files(Node*fs, Message *req, Message * res) {
     printf("LIST_FILES: %s\n", req->filepath);
@@ -585,7 +612,6 @@ void start_dserver(Node* fs, Message *req, Message *res){
     res->operation = OK;
     sync_send(msgid_c, res);
 }
-
 
 void add_dserver(int server_id) {
     addr_d[count_d++] = server_id;
@@ -648,16 +674,6 @@ int main() {
     srand(time(0));
     init_mesg_queue();
     count_d = 0;
-    
-    // create_path(fs, "movies/batman/batman_begins");
-    // find_node(fs, "superman");
-    // printfs(fs);
-    // char path[128];
-    // strcpy(path,"/hello/file.txt/");
-    // char** parts = parse_input(path, "/");
-    // printf("%s\n", parts[1]);
-    // exit(EXIT_SUCCESS);
-    
 
     Node* fs = mknode(FS_DIR, "root");
     Message req;
@@ -673,6 +689,9 @@ int main() {
         }
         if (async_recv(msgid_m, &req, ADD_CHUNK)) {
             add_chunk_req(fs, &req, &res);
+        }
+        if (async_recv(msgid_m, &req, CHUNK_INFO)) {
+            chunk_info_req(fs, &req, &res);
         }
         if (async_recv(msgid_m, &req, COPY)) {
             copy_file_req(fs, &req, &res);

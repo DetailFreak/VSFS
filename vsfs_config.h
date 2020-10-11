@@ -39,6 +39,7 @@ int count_d;
 #define DELETE_CHUNK 140
 #define EXEC_CHUNK 150
 #define EXEC_DATA 160
+#define CHUNK_INFO 170
 /*
     Ack Codes
 */
